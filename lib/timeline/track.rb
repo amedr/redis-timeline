@@ -23,10 +23,10 @@ module Timeline::Track
     private
       def define_activity_method(method_name, options={})
         define_method method_name do
-          @actor = send(options[:actor])
           @fields_for = {}
+          @actor = set_object(options[:actor])
           @object = set_object(options[:object])
-          @target = !options[:target].nil? ? send(options[:target].to_sym) : nil
+          @target = !options[:target].nil? ? set_object(options[:target]) : nil
           @extra_fields ||= nil
           @followers = @actor.send(options[:followers].to_sym)
           @mentionable = options[:mentionable]
@@ -39,9 +39,9 @@ module Timeline::Track
     def activity(options={})
       {
         verb: options[:verb],
-        actor: options_for(@actor),
-        object: options_for(@object),
-        target: options_for(@target),
+        actor: options_for(@actor, "actor"),
+        object: options_for(@object, "object"),
+        target: options_for(@target, "target"),
         created_at: Time.now
       }
     end
@@ -79,21 +79,21 @@ module Timeline::Track
       redis_add "user:id:#{user_id}:mentions", activity_item
     end
 
-    def extra_fields_for(object)
+    def extra_fields_for(object, source)
       return {} unless @fields_for.has_key?(object.class.to_s.downcase.to_sym)
       @fields_for[object.class.to_s.downcase.to_sym].inject({}) do |sum, method|
-        sum[method.to_sym] = @object.send(method.to_sym)
+        sum[method.to_sym] = instance_variable_get("@#{source}").send(method.to_sym)
         sum
       end
     end
 
-    def options_for(target)
+    def options_for(target, source)
       if !target.nil?
         {
           id: target.id,
           class: target.class.to_s,
           display_name: target.to_s
-        }.merge(extra_fields_for(target))
+        }.merge(extra_fields_for(target, source))
       else
         nil
       end
@@ -110,9 +110,12 @@ module Timeline::Track
       when object.is_a?(Array)
         @fields_for[self.class.to_s.downcase.to_sym] = object
         self
+      when object.is_a?(Hash)
+        key = object.keys.first.to_sym
+        @fields_for[send(key).class.to_s.downcase.to_sym] = object.values.first
+        send(key)
       else
         self
       end
     end
-
 end
